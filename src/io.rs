@@ -50,23 +50,16 @@ where
         let tag = self
             .cipher
             .encrypt_in_place_detached(&nonce, self.ad, &mut self.buffer)
-            .map_err(|e| {
-                eprintln!("encryption error ({e})");
-                Error::other("encryption failed")
-            })?;
+            .map_err(|_| Error::other("encryption failed"))?;
 
         self.inner.write_all(&nonce)?;
-        println!("writed nonce {} bytes", nonce.len());
 
         let buf_len = self.buffer.len() as u64;
         self.inner.write_all(&buf_len.to_le_bytes())?;
-        println!("writed bufferlen {}", buf_len);
 
         self.inner.write_all(&self.buffer)?;
-        println!("writed buffer {} bytes", self.buffer.len());
 
         self.inner.write_all(&tag)?;
-        println!("writed tag {} bytes", tag.len());
 
         self.buffer.clear();
         Ok(())
@@ -91,9 +84,6 @@ where
     }
 
     fn flush(&mut self) -> Result<()> {
-        println!("==========================");
-        println!("flushing last chunk");
-        println!("==========================");
         self.flush_chunk()?;
         self.inner.flush()
     }
@@ -144,13 +134,9 @@ where
             return Err(Error::new(ErrorKind::UnexpectedEof, "chunk truncated"));
         }
 
-        println!("readed nonce {} bytes", nonce.len());
-
         let mut len_buf = [0u8; 8];
         self.inner.read_exact(&mut len_buf)?;
         let len = u64::from_le_bytes(len_buf) as usize;
-
-        println!("buffer len {}", len);
 
         if len > MAX_CHUNK_SIZE {
             return Err(Error::new(ErrorKind::InvalidData, "invalid chunk size"));
@@ -161,18 +147,13 @@ where
         self.buffer.resize(len, 0);
 
         self.inner.read_exact(&mut self.buffer)?;
-        println!("readed buffer {} bytes", self.buffer.len());
 
         let mut tag = GenericArray::<u8, C::TagSize>::default();
         self.inner.read_exact(&mut tag)?;
-        println!("readed tag {} bytes", tag.len());
 
         self.cipher
             .decrypt_in_place_detached(&nonce, self.ad, &mut self.buffer, &tag)
-            .map_err(|e| {
-                println!("decrypt error ({e})");
-                Error::other("decryption failed")
-            })?;
+            .map_err(|_| Error::other("decryption failed"))?;
 
         self.pos = 0;
         Ok(self.buffer.len())
