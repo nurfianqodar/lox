@@ -1,65 +1,15 @@
-# LOX Archive Format
+# LOX Archive
 
-LOX is a custom streaming archive format that combines:
-
-- **AEAD encryption (XChaCha20-Poly1305)**
-- **XZ compression**
-- **TAR archival format**
-
-It is designed for chunked streaming encryption with compression layered between encryption and archival.
-
----
-
-## Pipeline Overview
-
-### Encoding flow
-
-```
-
-File/Dir → TAR → XZ → AEAD (chunked) → Output
-
-```
-
-### Decoding flow
-
-```
-
-Input → AEAD Reader → XZ Decoder → TAR Archive → Files
-
-```
-
----
+LOX is a custom streaming archive format. It is designed for chunked
+streaming encryption with compression layered between encryption and
+archival.
 
 ## Features
 
 - Chunk-based encrypted streaming (AEAD)
-- Random nonce per chunk
-- XZ compression layer
-- TAR-compatible archive structure
+- Compression layer
 - Streaming read/write (no full buffering required)
 - Directory and file support
-
----
-
-## Chunk Format
-
-Each encrypted chunk is written as:
-
-```
-
-[nonce (24 bytes)]
-[chunk_length (u64 LE)]
-[ciphertext]
-[tag (16 bytes)]
-
-````
-
-- Nonce: generated per chunk
-- Length: plaintext size before encryption
-- Ciphertext: encrypted data
-- Tag: authentication tag
-
----
 
 ## Usage Example
 
@@ -93,8 +43,6 @@ fn main() {
 }
 ````
 
----
-
 ### Decoding
 
 ```rust
@@ -118,66 +66,6 @@ fn main() {
     decoder.unpack("output").unwrap();
 }
 ```
-
----
-
-## Architecture
-
-### Encoder stack
-
-```
-TAR Builder
-   ↓
-XZ Encoder
-   ↓
-AEAD Chunk Writer
-   ↓
-Write Sink
-```
-
-### Decoder stack
-
-```
-Read Sink
-   ↓
-AEAD Chunk Reader
-   ↓
-XZ Decoder
-   ↓
-TAR Extractor
-```
-
----
-
-## Notes
-
-* Each chunk is independently encrypted
-* Nonce is generated per chunk
-* Compression happens before encryption (important for security + efficiency)
-* `finish()` must be called to properly finalize XZ stream
-* Missing finalization may cause `UnexpectedEof` during decode
-
----
-
-## Status
-
-This project is experimental and used for:
-
-* learning streaming codecs
-* encryption + compression layering
-* archive format design exploration
-
----
-
-## Future ideas
-
-* incremental verification
-* chunk resumption / partial recovery
-* parallel encoding
-* format versioning header
-* integrity manifest (file-level hash tree)
-
----
 
 ## License
 
