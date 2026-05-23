@@ -13,6 +13,7 @@ use aead::{
 use tar::{Archive, Builder};
 use xz2::{read::XzDecoder, write::XzEncoder};
 
+pub use crate::io::MAX_CHUNK_SIZE;
 use crate::io::{Reader, Writer};
 
 type EncWriter<'a, W, C, R> = Writer<'a, W, C, R>;
@@ -43,7 +44,7 @@ where
     /// - `rng`: secure RNG for nonce generation.
     /// - `chunk_size`: encrypted chunk size in bytes.
     /// - `ad`: additional authenticated data (AAD).
-    /// - `compress_level`: xz compression level (`0..=9`).
+    /// - `compress_level`: compression level (`0..=9`).
     pub fn new(
         inner: W,
         cipher: C,

@@ -11,3 +11,4 @@ aead = "0.5"
 tar = "0.4"
 uuid = { version = "1.23", features = ["v7"] }
 xz2 = "0.1"
+zeroize = { version = "1.8", features = ["derive"] }

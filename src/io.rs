@@ -7,19 +7,30 @@ use aead::{
     generic_array::GenericArray,
     rand_core::{CryptoRng, RngCore},
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Writer<'a, W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
     R: RngCore + CryptoRng,
 {
+    #[zeroize(skip)]
     inner: W,
-    chunk_size: usize,
-    buffer: Vec<u8>,
+
+    #[zeroize(skip)]
     cipher: C,
+
+    #[zeroize(skip)]
     ad: &'a [u8],
+
+    #[zeroize(skip)]
     rng: R,
+
+    chunk_size: usize,
+
+    buffer: Vec<u8>,
 }
 
 impl<'a, W, C, R> Writer<'a, W, C, R>
@@ -46,19 +57,16 @@ where
         }
 
         let nonce = C::generate_nonce(&mut self.rng);
-
         let tag = self
             .cipher
             .encrypt_in_place_detached(&nonce, self.ad, &mut self.buffer)
             .map_err(|_| Error::other("encryption failed"))?;
+        let buf_len = u64::try_from(self.buffer.len())
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "unable to convert usize to u64"))?;
 
         self.inner.write_all(&nonce)?;
-
-        let buf_len = self.buffer.len() as u64;
         self.inner.write_all(&buf_len.to_le_bytes())?;
-
         self.inner.write_all(&self.buffer)?;
-
         self.inner.write_all(&tag)?;
 
         self.buffer.clear();
@@ -89,14 +97,19 @@ where
     }
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Reader<'a, R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,
 {
+    #[zeroize(skip)]
     cipher: C,
+    #[zeroize(skip)]
     inner: R,
+    #[zeroize(skip)]
     ad: &'a [u8],
+
     buffer: Vec<u8>,
     pos: usize,
 }
@@ -116,28 +129,33 @@ where
         }
     }
 
+    /// fill buffer with new decrypted data
+    /// return the length of decrypted data
+    ///
+    /// Note: remaining content will overwrited make sure no
+    /// remaining buffer in the buffer
     fn fill_buffer_replaced(&mut self) -> Result<usize> {
         let mut nonce = GenericArray::<u8, C::NonceSize>::default();
         let mut readn = 0usize;
-
         while readn < nonce.len() {
+            // read nonce or EOF on 0 result
             let n = self.inner.read(&mut nonce[readn..])?;
             if n == 0 {
+                if readn == 0 {
+                    return Ok(0); // EOF
+                };
+                if readn != nonce.len() {
+                    return Err(Error::new(ErrorKind::UnexpectedEof, "chunk truncated"));
+                };
                 break;
-            }
+            };
             readn += n;
-        }
-        if readn == 0 {
-            return Ok(0);
-        }
-        if readn != nonce.len() {
-            return Err(Error::new(ErrorKind::UnexpectedEof, "chunk truncated"));
         }
 
         let mut len_buf = [0u8; 8];
         self.inner.read_exact(&mut len_buf)?;
-        let len = u64::from_le_bytes(len_buf) as usize;
-
+        let len = usize::try_from(u64::from_le_bytes(len_buf))
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "unable to convert u64 to usize"))?;
         if len > MAX_CHUNK_SIZE {
             return Err(Error::new(ErrorKind::InvalidData, "invalid chunk size"));
         };
@@ -146,16 +164,16 @@ where
         self.buffer.reserve(len);
         self.buffer.resize(len, 0);
 
-        self.inner.read_exact(&mut self.buffer)?;
-
         let mut tag = GenericArray::<u8, C::TagSize>::default();
+
+        self.inner.read_exact(&mut self.buffer)?;
         self.inner.read_exact(&mut tag)?;
 
         self.cipher
             .decrypt_in_place_detached(&nonce, self.ad, &mut self.buffer, &tag)
             .map_err(|_| Error::other("decryption failed"))?;
+        self.pos = 0; // reset cursor position to 0
 
-        self.pos = 0;
         Ok(self.buffer.len())
     }
 }
@@ -165,6 +183,11 @@ where
     R: Read,
     C: AeadCore + AeadInPlace,
 {
+    /// read decrypted data to a buffer, return length
+    /// of filled buffer
+    ///
+    /// partial read may always happen so use read_exact
+    /// to avoid partial read
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if self.pos >= self.buffer.len() {
             let filled = self.fill_buffer_replaced()?;
