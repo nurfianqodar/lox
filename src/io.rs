@@ -10,7 +10,7 @@ use aead::{
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Writer<'a, W, C, R>
+pub struct Writer<W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
@@ -18,31 +18,25 @@ where
 {
     #[zeroize(skip)]
     inner: W,
-
     #[zeroize(skip)]
     cipher: C,
-
-    #[zeroize(skip)]
-    ad: &'a [u8],
-
     #[zeroize(skip)]
     rng: R,
-
+    ad: Vec<u8>,
     chunk_size: usize,
-
     buffer: Vec<u8>,
 }
 
-impl<'a, W, C, R> Writer<'a, W, C, R>
+impl<W, C, R> Writer<W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
     R: RngCore + CryptoRng,
 {
-    pub fn new(inner: W, cipher: C, rng: R, chunk_size: usize, ad: &'a [u8]) -> Self {
+    pub fn new(inner: W, cipher: C, rng: R, chunk_size: usize, ad: &[u8]) -> Self {
         let buffer = Vec::with_capacity(chunk_size);
         Self {
-            ad,
+            ad: ad.to_vec(),
             inner,
             chunk_size,
             buffer,
@@ -59,7 +53,7 @@ where
         let nonce = C::generate_nonce(&mut self.rng);
         let tag = self
             .cipher
-            .encrypt_in_place_detached(&nonce, self.ad, &mut self.buffer)
+            .encrypt_in_place_detached(&nonce, &self.ad, &mut self.buffer)
             .map_err(|_| Error::other("encryption failed"))?;
         let buf_len = u64::try_from(self.buffer.len())
             .map_err(|_| Error::new(ErrorKind::InvalidData, "unable to convert usize to u64"))?;
@@ -74,7 +68,7 @@ where
     }
 }
 
-impl<'a, W, C, R> Write for Writer<'a, W, C, R>
+impl<'a, W, C, R> Write for Writer<W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
@@ -98,7 +92,7 @@ where
 }
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Reader<'a, R, C>
+pub struct Reader<R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,
@@ -107,23 +101,21 @@ where
     cipher: C,
     #[zeroize(skip)]
     inner: R,
-    #[zeroize(skip)]
-    ad: &'a [u8],
-
+    ad: Vec<u8>,
     buffer: Vec<u8>,
     pos: usize,
 }
 
-impl<'a, R, C> Reader<'a, R, C>
+impl<R, C> Reader<R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,
 {
-    pub fn new(inner: R, cipher: C, ad: &'a [u8]) -> Self {
+    pub fn new(inner: R, cipher: C, ad: &[u8]) -> Self {
         Self {
             cipher,
             inner,
-            ad,
+            ad: ad.to_vec(),
             buffer: Vec::new(),
             pos: 0,
         }
@@ -170,7 +162,7 @@ where
         self.inner.read_exact(&mut tag)?;
 
         self.cipher
-            .decrypt_in_place_detached(&nonce, self.ad, &mut self.buffer, &tag)
+            .decrypt_in_place_detached(&nonce, &self.ad, &mut self.buffer, &tag)
             .map_err(|_| Error::other("decryption failed"))?;
         self.pos = 0; // reset cursor position to 0
 
@@ -178,7 +170,7 @@ where
     }
 }
 
-impl<'a, R, C> Read for Reader<'a, R, C>
+impl<R, C> Read for Reader<R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,

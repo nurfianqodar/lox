@@ -16,20 +16,20 @@ use xz2::{read::XzDecoder, write::XzEncoder};
 pub use crate::io::MAX_CHUNK_SIZE;
 use crate::io::{Reader, Writer};
 
-type EncWriter<'a, W, C, R> = Writer<'a, W, C, R>;
-type XzWriter<'a, W, C, R> = XzEncoder<EncWriter<'a, W, C, R>>;
-type TarWriter<'a, W, C, R> = Builder<XzWriter<'a, W, C, R>>;
+type EncWriter<W, C, R> = Writer<W, C, R>;
+type XzWriter<W, C, R> = XzEncoder<EncWriter<W, C, R>>;
+type TarWriter<W, C, R> = Builder<XzWriter<W, C, R>>;
 
-pub struct Encoder<'a, W, C, R>
+pub struct Encoder<W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
     R: RngCore + CryptoRng,
 {
-    inner: TarWriter<'a, W, C, R>,
+    inner: TarWriter<W, C, R>,
 }
 
-impl<'a, W, C, R> Encoder<'a, W, C, R>
+impl<'a, W, C, R> Encoder<W, C, R>
 where
     W: Write,
     C: AeadCore + AeadInPlace,
@@ -50,7 +50,7 @@ where
         cipher: C,
         rng: R,
         chunk_size: usize,
-        ad: &'a [u8],
+        ad: &[u8],
         compress_level: u32,
     ) -> Self {
         let enc_writer = EncWriter::new(inner, cipher, rng, chunk_size, ad);
@@ -175,19 +175,19 @@ where
     }
 }
 
-type DecReader<'a, R, C> = Reader<'a, R, C>;
-type XzReader<'a, R, C> = XzDecoder<DecReader<'a, R, C>>;
-type TarReader<'a, R, C> = Archive<XzReader<'a, R, C>>;
+type DecReader<R, C> = Reader<R, C>;
+type XzReader<R, C> = XzDecoder<DecReader<R, C>>;
+type TarReader<R, C> = Archive<XzReader<R, C>>;
 
-pub struct Decoder<'a, R, C>
+pub struct Decoder<R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,
 {
-    inner: TarReader<'a, R, C>,
+    inner: TarReader<R, C>,
 }
 
-impl<'a, R, C> Decoder<'a, R, C>
+impl<R, C> Decoder<R, C>
 where
     R: Read,
     C: AeadCore + AeadInPlace,
@@ -199,7 +199,7 @@ where
     /// - `inner`: encrypted input reader.
     /// - `cipher`: AEAD cipher used for decryption.
     /// - `ad`: additional authenticated data (AAD).
-    pub fn new(inner: R, cipher: C, ad: &'a [u8]) -> Self {
+    pub fn new(inner: R, cipher: C, ad: &[u8]) -> Self {
         let dec_reader = DecReader::new(inner, cipher, ad);
         let xz_reader = XzReader::new(dec_reader);
         let inner = TarReader::new(xz_reader);
